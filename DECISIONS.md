@@ -5,10 +5,24 @@
 今後ハーネスを改修する人（自分自身を含む）が、同じ議論を繰り返したり、
 一度直したバグを再導入したりしないようにするための記録です。
 
-最終更新: 2026-07-02
+最終更新: 2026-07-06
 
 各項目は「決定」「根拠・出典」「捨てた選択肢」の順で書く（`docs/02-design/adr/adr_template.md` と
 同じ形式を踏襲）。
+
+## 系譜（このリポジトリの出自）
+
+**本リポジトリ（gas-webapp-dev-harness）は copilot-sdlc-harness（コミット a8d540e）からの
+派生であり、本体の D001〜D027 の決定をすべて継承する。** D001〜D027 は本体で決定された
+内容の写しであり、以後の本体側の変更はここには自動反映されない。
+
+- **特化方針**: 構造的な不変部分（agents/hooks/prompts/skillsの骨格、フェーズゲート、
+  成長ループ、セキュリティガードレール、3プラットフォーム対応のアダプタ層）は変えず、
+  GAS（Google Apps Script）特化は「追記と事前確定」だけで行う（databricks-job-dev-harness と
+  同じ「コピーして特化」方式）。
+- **本リポジトリ固有の決定は GD01〜 と番号付けし、本体の D 系列と区別する**（本文末尾）。
+- **同期方針**: 派生→本体は改善指示書（handover文書）方式で人間が還流する。
+  本体→派生は、本体側の汎用改善（D028以降）を定期的にレビューして手動で再適用する。
 
 ---
 
@@ -382,3 +396,191 @@
   validatorによる乖離検出」は、ai-manager向けの改善指示書
   （D:\vscode-worspace\ai-manager-improvement-handover.md）として別途まとめた
   （ai-managerはポインタを手作業維持しており、転写忘れによるドリフトのリスクがあるため）。
+
+## D027: アダプタ生成・整合検証ツールをリポジトリに同梱
+
+- **決定**: これまで開発セッションの作業領域にしか存在しなかったアダプタ生成スクリプトと
+  整合性バリデータを `tools/generate-adapters.py` / `tools/validate-harness.py` として
+  リポジトリに同梱した。skill-authoring スキルの「ポインタ同時作成」手順も
+  ツール実行を第一の方法に更新した。
+- **根拠**: GAS派生ハーネス構築指示書を多プラットフォーム対応(D025)に合わせて改訂する際、
+  派生側がアダプタを再生成・検証する手段を持たないことが判明した。これは自分たちが
+  D021で定めた「参照される仕組みには実体を同梱するか、無いことを明記する」原則への
+  違反だったため解消した。同梱版はパスをスクリプト位置からの相対に変更し、
+  冪等性（再実行で差分ゼロ）を確認済み。ai-manager向け還流指示書(I-1/I-2)で
+  他プロジェクトに勧めた内容を、自分自身にも適用した形。
+
+---
+
+# GAS特化ハーネス固有の決定（GD系列）
+
+以下は gas-webapp-dev-harness 固有の決定。構築指示書
+（gas-webapp-dev-harness-kickoff.md、2026-07-06）に基づく。
+
+## GD01: 基線同期 — テンプレートスナップショットを a8d540e に揃えた
+
+- **決定**: 「Use this template」で作られた初期コミットには `tools/generate-adapters.py` /
+  `tools/validate-harness.py` と D027 が含まれていなかった（テンプレート化がコミット
+  a8d540e より前のスナップショットだった）ため、構築の最初に本体リポジトリを
+  `upstream` として fetch し、差分4ファイル（tools 2本・DECISIONS.md・
+  skill-authoring/SKILL.md）を a8d540e の内容に同期した。
+- **根拠**: 構築指示書が「コミット a8d540e 時点からの派生」を前提とし、アダプタ再生成・
+  乖離検証をこれらのツールで行うことを必須にしているため。同期後に
+  `python tools/validate-harness.py` でエラー0を確認済み。
+- **捨てた選択肢**: ツール無しで手書きアダプタ運用（本体D027で否定済みの状態に戻るため不採用）。
+
+## GD02: GAS最新情報の裏取り調査（2026-07-06 実施）
+
+- **決定**: 構築指示書のGAS技術情報を正とせず、一次情報で以下を裏取りした。
+  スキルに書いた値はすべてこの調査に基づく。
+- **調査結果（調査日: 2026-07-06）**:
+  - **clasp 現行版は v3.3.0（2026-03-12）**。v3系でコマンド体系が刷新され
+    （`create-script` / `clone-script` / `create-version` / `list-versions` /
+    `create-deployment` / `update-deployment` / `list-deployments` /
+    `open-web-app` / `tail-logs` 等）、v2の `deploy -i <id>` は `update-deployment <id>` に、
+    `open --web` は `open-web-app` に変わった。
+    **v3はTypeScriptの自動トランスパイルを廃止**（公式README明記。バンドラ
+    （Rollup/esbuild等）でビルドしてからpushする方式が公式推奨）。
+    認証情報はホームディレクトリの `.clasprc.json` に保存される。
+    出典: [google/clasp README・Releases](https://github.com/google/clasp)
+  - **クォータ（consumer / Workspace）**: スクリプト実行 6分/回、カスタム関数 30秒/回、
+    トリガー合計実行時間 90分/日 / 6時間/日、トリガー数 20/ユーザー/スクリプト、
+    同時実行 30/ユーザー、UrlFetch 20,000/日 / 100,000/日、UrlFetchレスポンス 50MB/回、
+    Properties 9KB/値・500KB/ストア、メール送信 100宛先/日 / 1,500宛先/日。
+    出典: [Quotas for Google Services](https://developers.google.com/apps-script/guides/services/quotas)
+  - **appsscript.json**: `runtimeVersion`（STABLE/V8/DEPRECATED_ES5）、`oauthScopes[]`、
+    `webapp.access`（MYSELF/DOMAIN/ANYONE/ANYONE_ANONYMOUS）、
+    `webapp.executeAs`（USER_ACCESSING/USER_DEPLOYING）、`urlFetchWhitelist[]` 等。
+    出典: [Manifests](https://developers.google.com/apps-script/manifest)、
+    [Web app manifest resource](https://developers.google.com/apps-script/manifest/web-app-api-executable)
+  - **HtmlService**: サンドボックスは IFRAME のみ（NATIVE/EMULATED は廃止済みで
+    `setSandboxMode()` は無効）。トップレベルナビゲーション不可（リンクは
+    `target="_top"` / `"_blank"` または `<base target="_top">` が必要）。
+    スクリプト・外部CSS・XHRはHTTPS必須。
+    出典: [HTML Service restrictions](https://developers.google.com/apps-script/guides/html/restrictions)
+  - **Webアプリ**: `doGet`/`doPost` は `HtmlOutput` か `TextOutput` を返す必要がある。
+    `/dev` はheadデプロイ（編集者のみ・保存済み最新コード）、`/exec` が本番。
+    **デプロイを新バージョンに更新してもデプロイID・URLは不変**（ロールバックは
+    デプロイの参照バージョンを旧番号に付け替えることで行う）。
+    出典: [Web Apps](https://developers.google.com/apps-script/guides/web)、
+    [Deployments](https://developers.google.com/apps-script/concepts/deployments)
+  - **型定義**: `@types/google-apps-script` 現行 2.0.11（2026-06-05 更新）。
+    出典: [npm](https://www.npmjs.com/package/@types/google-apps-script)
+- **既存GAS向けAgent Skillの確認結果**: `github/awesome-copilot`（skills/ 368件を機械列挙、
+  apps-script/gas/clasp/google に一致なし）、`VoltAgent/awesome-agent-skills`
+  （コード検索一致なし）、agentskills.io / skills.sh（検索で該当なし）。
+  **流用できる公式/コミュニティのGAS向けSkillは確認できなかった**ため、
+  stack-conventions / deploy-gas はゼロから作成した（skill-authoring の
+  「流用優先」原則に従い確認した上での新規作成）。
+
+## GD03: stack-conventions（GAS規約）を事前同梱 — 本体D021の逆適用
+
+- **決定**: 本体では「スタック規約Skillは設計フェーズでスタック確定後に動的作成」だが、
+  本ハーネスはスタックがGASに固定なので `.github/skills/stack-conventions/SKILL.md` を
+  事前同梱した（V8前提、clasp v3+TSローカル開発構成、クォータ、PropertiesService/
+  LockService、HtmlService/google.script.run パターン）。
+- **根拠**: スタック固定の派生ハーネスでは「動的に育てる」の利点（汎用性）が不要になり、
+  事前確定の利点（設計・実装フェーズの調査コストゼロ・毎回同じ品質）が上回る。
+  databricks派生で実績のある方式。値はGD02の裏取り済みのもののみ記載。
+- **捨てた選択肢**: 本体同様の動的作成（毎プロジェクトで同じ調査を繰り返すため不採用）。
+
+## GD04: deploy-gas（デプロイ手順）を事前同梱 — 同じくD021の逆適用
+
+- **決定**: `.github/skills/deploy-gas/SKILL.md` を事前同梱した。クイックリファレンス
+  （clasp v3コマンド）、冪等な初期化、push→create-version→update-deployment の
+  URL不変デプロイ、検証、ロールバック、人手必須境界（初回OAuth同意・スコープ変更時の
+  再承認・アクセス設定変更）、GitHub Actions CI/CDの雛形を含む。
+- **根拠**: GD03と同じ。デプロイ先も固定なので release フェーズの
+  「Skillが無ければその場で作る」ループを省略できる。
+- **捨てた選択肢**: リリースフェーズでの動的作成（不採用理由はGD03と同じ）。
+
+## GD05: environment_template.md をGAS前提で事前記入
+
+- **決定**: `docs/01-requirements/environment_template.md` の見出し構成は維持したまま、
+  GASで確定する項目（デプロイ先=GAS、手段=clasp v3、認証=OAuth+`.clasprc.json`）を
+  事前記入し、プロジェクトごとに選択が必要な項目（コンテナバインド vs スタンドアロン、
+  `webapp.access` / `executeAs`、GCPプロジェクト紐付け要否）を選択式にした。
+  自動化境界の既定も「clasp push/デプロイ=自動可、初回OAuth同意・スコープ再承認・
+  アクセス設定変更=人手」と事前分類した。
+- **根拠**: 要件定義フェーズで最も破綻しやすい environment.md を、スタック固定の
+  利点を活かして「選ぶだけ」にする。ブラウザでの手動承認が必須の操作
+  （OAuth同意画面）は技術的に自動化不能であることが裏取りで確認できたため既定を「人手」にした。
+
+## GD06: テストは2層構造（ローカル純粋関数 + デプロイ先結合）を標準化
+
+- **決定**: `test-case-design` スキルにGAS固有の節を追加。GASはローカル実行不可のため、
+  (1) ロジックをGAS非依存の純粋関数に分離して Node/TS でユニットテスト、
+  (2) GASサービス依存部はデプロイ先での結合テスト、の2層を標準とする。
+  Webアプリは既存のPlaywright確認を `/exec` URL に対して実行し、
+  ui-design-mockup（視覚デザインゲート）もそのまま必須とする。
+- **根拠**: GASにローカル実行環境は存在しない（V8ランタイムはGoogle側でのみ動く）。
+  ロジック分離は clasp 3 のバンドラ前提ビルド（GD02）と自然に整合する。
+  なお `webapp.access` が ANYONE_ANONYMOUS 以外の場合、`/exec` はGoogleログインを
+  要求するためPlaywright自動確認が困難になる。この制約と対処（テスト時の一時的な
+  アクセス設定 or 手動確認への切替判断）もスキルに明記した。
+
+## GD07: design / release エージェントのGAS向け軽微調整
+
+- **決定**: `design.agent.md` — 技術スタック選定の質問はしない（GAS固定）。ユーザーに
+  委ねるトレードオフ提示は「GAS内での選択」（コンテナバインド vs スタンドアロン、
+  executeAs/access、UI構成、データ格納先）に読み替える注記を追加。stack-conventions は
+  同梱済みのため「新規作成」ではなく「必要時に追記」に変更。
+  `release.agent.md` — 着手時の疎通確認を「clasp認証状態の確認（`clasp list-scripts` が
+  成功するか）・`.clasp.json` の scriptId 確認・`clasp list-deployments` でのデプロイ先
+  URL確認」に具体化。deploy-gas 同梱済みを前提に手順を参照させる。
+- **根拠**: 構築指示書 3-5。振る舞いの正は .agent.md に置く等価性ルール（D008/A-5）に
+  従い、プロンプト側は変更していない。
+
+## GD08: 既存のGAS開発テンプレートと比べた優位性（構築指示書の完了条件）
+
+- **確認した比較対象（2026-07-06）**: iansan5653/gas-ts-template、cristobalgvera/ez-clasp、
+  sqrrrl/apps-script-typescript-rollup-starter、tomoyanakano/clasp-typescript-template、
+  howdy39/gas-clasp-starter 等（GitHub上の主要なGAS向けテンプレート）。
+- **結論**: 既存のGASテンプレートはいずれも**ビルド/ツーリングの雛形**
+  （TypeScript+lint+バンドラ+claspの初期構成）であり、要件定義→設計→実装→テスト→
+  リリースのSDLC全体をオーケストレーションするものは確認できなかった。
+  **該当する既存のGAS特化「開発ハーネス」は確認できなかった。**
+- **本ハーネスの優位性（言語化）**:
+  1. **SDLCオーケストレーション**: フェーズゲート・独立レビュー（spec-critic/reviewer）・
+     視覚デザインゲート（HtmlService Webアプリと特に相性が良い）・成長ループを持つ。
+     既存テンプレートは「コードを書き始める環境」までしか提供しない。
+  2. **GAS焼き込みの事前確定**: environment_template / stack-conventions / deploy-gas に
+     裏取り済みの現行仕様（clasp v3コマンド体系・クォータ・manifest）が焼き込まれており、
+     エージェントが毎回調査する必要がない。既存テンプレートはGAS制約の知識を提供しない。
+  3. **3プラットフォーム対応**: Copilot / Claude Code / Antigravity で同じ振る舞い
+     （本体D025を継承）。既存テンプレートはエージェント環境非対応。
+  4. **機械的ガードレール**: シークレット検知・破壊的操作の確認・ハーネス自己改変防止
+     （GASでは `.clasprc.json` の漏えい防止が特に重要）。
+
+## GD09: gas-access-control スキル — チーム限定アクセス制御の標準部品化
+
+- **決定**: `.github/skills/gas-access-control/SKILL.md`（+ `references/access-control.js`
+  参照実装）を新設し、GAS Webアプリの「特定チーム限定」を実現するアプリ層allowlist照合を
+  標準パターン化した。environment_template の「Webアプリ設定」に「アクセス制御方式」
+  「allowlistの管理場所」の要選択行を追加し、design エージェントの「GAS内での選択」・
+  test-case-design の認可テスト観点・stack-conventions からの参照も接続した。
+- **根拠**: `webapp.access` には特定ユーザー集合に限定する選択肢が無い
+  （`DOMAIN` はドメイン**全体**で、ユーザーの指摘どおり広すぎる）。よってチーム限定は
+  アプリ層で自作するしかないが、素朴に作ると2つの穴を高確率で踏む。いずれも
+  一次情報で裏取り済み（2026-07-06）:
+  1. **本人確認の信頼性**: `getActiveUser().getEmail()` は「execute as me
+     （USER_DEPLOYING）のWebアプリでは空文字。ただし開発者自身または同一Workspace
+     ドメインのユーザーには制限が適用されない」
+     （[Session reference](https://developers.google.com/apps-script/reference/base/session)）。
+     → 構成の判定表（Workspace内チーム限定 = DOMAIN+USER_DEPLOYING+allowlist、
+     consumer横断 = ANYONE+USER_ACCESSING+allowlist）としてスキル化。
+  2. **認可バイパス**: `google.script.run` は doGet を経由せず公開サーバ関数を直接
+     呼べる。`_` 終わりの関数・ライブラリ内・非トップレベル関数は呼べない
+     （[Communication guide](https://developers.google.com/apps-script/guides/html/communication)）。
+     → 「全公開関数の先頭で requireAuth_() + 内部関数は `_` で非公開化」を鉄則化。
+  - 「データを共有するのではなく作りを標準化する」というユーザーの方針
+    （2026-07-06の対話）に基づく。ハーネスは特定アプリのコードを含まない原則だが、
+    スキルの `references/` に参照実装を置くのは security-review と同様の既存作法の範囲。
+- **捨てた選択肢**: (a) URLトークン（共有シークレット）方式を既定にする —
+  「リンクを知っている人全員」と等価の弱い認可のため、判定表で構成変更を促す扱いに留めた。
+  (b) Drive共有（シート共有）だけに依存 — USER_ACCESSING構成ではデータ層の防御として
+  機能するが、利用者がアプリを迂回してシートを直接開けるため、UI限定・列秘匿の要件を
+  満たせない。トレードオフとしてスキルに明記。
+  (c) 判定表の無条件信頼 — 挙動はアカウント種別依存のため「初回プロジェクトの
+  テストフェーズで実測確認し、異なればスキルを修正して learnings.md に記録」を
+  スキル本文に組み込んだ。

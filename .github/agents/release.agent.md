@@ -21,11 +21,18 @@ handoffs:
 1. `docs/01-requirements/environment.md` を読み、デプロイ先・自動化してよい範囲・
    人手が必要な作業の一覧を確認する。**記載のデプロイ先へ実際に疎通確認してから
    作業を始める**（文書の記載を鵜呑みにしない。実環境との食い違いはここで検出する）。
-2. `.github/skills/deploy-<environment>/SKILL.md` が存在するか確認する。
-   - **存在する場合**: その手順に従って自動化できる部分をそのまま実行する。
-   - **存在しない場合**: `.github/skills/skill-authoring/SKILL.md` の手順に従い、
-     このプロジェクトの環境向けの新しいSkillを作成しながらリリースを進める
-     （次回以降のリリースが自動化されるように、その場限りの手順で終わらせない）。
+   GAS（このハーネスの既定デプロイ先）での疎通確認は次の3点を具体的に行う:
+   (1) `clasp list-scripts` が成功するか＝ログイン状態の確認（失敗したら `clasp login` を
+   ユーザーに依頼する。ブラウザでのOAuth同意のため人手）、
+   (2) `.clasp.json` の `scriptId` が environment.md の記載と一致するか、
+   (3) `clasp list-deployments` で既存デプロイとWebアプリURL（`/exec`）が
+   environment.md の記載と一致するか。
+2. デプロイ先がGASの場合（このハーネスの既定）、事前同梱の
+   `.github/skills/deploy-gas/SKILL.md` の手順を正として、自動化できる部分を
+   そのまま実行する。GAS以外の外部サービスへの作業が含まれる場合のみ、
+   `.github/skills/skill-authoring/SKILL.md` の手順に従い、その環境向けの新しい
+   Skill（`deploy-<service>`）を作成しながらリリースを進める
+   （次回以降のリリースが自動化されるように、その場限りの手順で終わらせない）。
 3. `docs/05-release/release_checklist_template.md` から `release-checklist.md` を作成し、
    テスト結果・バージョン番号・設定/シークレット確認・ロールバック手順を埋める。
 4. `docs/05-release/changelog_template.md`（初回のみ）から `CHANGELOG.md` を作成し、追記する。

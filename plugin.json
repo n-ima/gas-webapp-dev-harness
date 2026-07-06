@@ -1,6 +1,6 @@
 {
-  "name": "app-dev-harness",
-  "description": "要件定義→設計→実装→テスト→リリースを一気通貫でオーケストレーションするGitHub Copilot開発ハーネス",
+  "name": "gas-webapp-dev-harness",
+  "description": "GAS(Google Apps Script)アプリ(スプレッドシート連携・Webアプリ)の要件定義→設計→実装→テスト→リリースを一気通貫でオーケストレーションする開発ハーネス",
   "version": "0.1.0",
   "agents": ".github/agents",
   "skills": ".github/skills",
